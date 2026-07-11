@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div style="margin-bottom: 40px;">
+    <h2 style="font-size: 2.5rem;">Casella <span class="text-neon">Notifiche</span> 🔔</h2>
+    <p style="color: var(--text-muted); font-size: 1.1rem;">Tutti gli aggiornamenti su progetti, preventivi e messaggi.
+    </p>
+</div>
+
+<div style="max-width: 800px; display: flex; flex-direction: column; gap: 16px;">
+    {% if not notifications %}
+    <div class="neon-card" style="text-align: center; color: var(--text-muted); padding: 60px;">
+        <i class="fa-regular fa-bell-slash" style="font-size: 3rem; opacity: 0.3; margin-bottom: 16px;"></i><br>
+        Non hai nessuna notifica al momento.
+    </div>
+    {% else %}
+    {% for n in notifications %}
+    <div class="neon-card"
+        style="padding: 20px; display: flex; gap: 20px; align-items: center; {% if not n.is_read %}border-left: 4px solid var(--accent-purple); background: rgba(99, 102, 241, 0.03);{% endif %}">
+
+        <div style="font-size: 2rem; color: var(--accent-purple); opacity: 0.8;">
+            {% if n.category == 'Chat' %}<i class="fa-solid fa-comments"></i>
+            {% elif n.category == 'Preventivo' %}<i class="fa-solid fa-file-invoice-dollar"></i>
+            {% elif n.category == 'Stato Lavoro' %}<i class="fa-solid fa-spinner"></i>
+            {% else %}<i class="fa-solid fa-bell"></i>{% endif %}
+        </div>
+
+        <div style="flex-grow: 1;">
+            <h4
+                style="margin-bottom: 4px; font-size: 1rem; color: var(--text-muted); text-transform: uppercase; font-weight: 800; font-size: 0.75rem;">
+                {{ n.category }} • {{ n.created_at.strftime('%d/%m/%Y %H:%M') }}</h4>
+            <p
+                style="font-size: 1.05rem; color: var(--primary-dark); font-weight: {% if not n.is_read %}700{% else %}500{% endif %};">
+                {{ n.message }}</p>
+        </div>
+
+        {% if n.link %}
+        <div>
+            <a href="{{ n.link }}" class="btn btn-secondary btn-sm" style="padding: 8px 16px; font-size: 0.8rem;">Vai <i
+                    class="fa-solid fa-arrow-right"></i></a>
+        </div>
+        {% endif %}
+    </div>
+    {% endfor %}
+    {% endif %}
+</div>
+{% endblock %}

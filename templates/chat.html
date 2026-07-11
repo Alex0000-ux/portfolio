@@ -1,0 +1,122 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div style="max-width: 800px; margin: 0 auto;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <div>
+            <h2>Chat Progetto: <span style="color: var(--accent-purple);">{{ request.site_name }}</span></h2>
+        </div>
+        <a href="{% if current_user.is_admin %}/admin{% else %}/dashboard{% endif %}" class="btn btn-secondary">←
+            Indietro</a>
+    </div>
+
+    <div class="chat-wrapper">
+        <div class="chat-box" id="chat-box">
+            {% for msg in messages %}
+            <div class="msg {% if msg.is_from_admin %}msg-admin{% else %}msg-user{% endif %}">
+                <div class="msg-header">
+                    <span>{{ msg.sender.name }} {% if msg.is_from_admin %}(Admin){% endif %}</span>
+                    <span>{{ msg.timestamp.strftime('%H:%M') }}</span>
+                </div>
+                <div>
+                    {{ msg.content }}
+                    <!-- Mostra l'allegato se presente -->
+                    {% if msg.attachment %}
+                    <div style="margin-top: 8px;">
+                        <a href="/static/uploads/{{ msg.attachment }}" target="_blank" class="btn btn-secondary btn-sm"
+                            style="font-size: 0.8rem; padding: 6px 12px; display: inline-flex; background: rgba(255,255,255,0.8);">
+                            <i class="fa-solid fa-paperclip"></i> &nbsp; {{ msg.attachment }}
+                        </a>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- BARRA INPUT AGGIORNATA CON PULSANTE ALLEGATO -->
+        <div class="chat-input-bar" style="align-items: center;">
+            <input type="file" id="file-input" style="display: none;" onchange="uploadFile()">
+            <button onclick="document.getElementById('file-input').click()" class="btn btn-secondary"
+                style="border-radius: 50%; width: 45px; height: 45px; padding: 0; display: flex; justify-content: center; align-items: center;"
+                title="Allega un file">
+                <i class="fa-solid fa-paperclip"></i>
+            </button>
+            <input type="text" id="msg-input" placeholder="Scrivi un messaggio..." autocomplete="off"
+                style="flex-grow: 1;">
+            <button onclick="sendMessage()" class="btn btn-primary"
+                style="border-radius: 30px; padding: 0 24px;">Invia</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const socket = io();
+    const roomId = "{{ request.id }}";
+    const chatBox = document.getElementById('chat-box');
+    const msgInput = document.getElementById('msg-input');
+
+    socket.emit('join', { room: roomId });
+    chatBox.scrollTop = chatBox.scrollHeight;
+
+    function sendMessage() {
+        const text = msgInput.value.trim();
+        if (text) {
+            socket.emit('send_message', { room: roomId, message: text });
+            msgInput.value = '';
+        }
+    }
+
+    msgInput.addEventListener('keypress', function (e) {
+        if (e.key === 'Enter') sendMessage();
+    });
+
+    // Funzione di Upload Asincrona
+    async function uploadFile() {
+        const fileInput = document.getElementById('file-input');
+        const file = fileInput.files[0];
+        if (!file) return;
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const response = await fetch(`/chat/${roomId}/upload`, {
+                method: 'POST',
+                body: formData
+            });
+            const result = await response.json();
+            if (result.success) {
+                fileInput.value = '';
+            } else {
+                alert('Errore caricamento file: ' + result.error);
+            }
+        } catch (error) {
+            console.error('Errore Upload:', error);
+        }
+    }
+
+    // Ricezione WebSocket (Testo o File)
+    socket.on('receive_message', function (data) {
+        const div = document.createElement('div');
+        const isAdmin = data.is_admin;
+        div.className = isAdmin ? 'msg msg-admin' : 'msg msg-user';
+
+        let attachHtml = '';
+        if (data.attachment) {
+            attachHtml = `<div style="margin-top: 8px;"><a href="/static/uploads/${data.attachment}" target="_blank" class="btn btn-secondary btn-sm" style="font-size: 0.8rem; padding: 6px 12px; display: inline-flex; background: rgba(255,255,255,0.8);"><i class="fa-solid fa-paperclip"></i> &nbsp; ${data.attachment}</a></div>`;
+        }
+
+        div.innerHTML = `
+            <div class="msg-header">
+                <span>${data.sender} ${isAdmin ? '(Admin)' : ''}</span>
+                <span>${data.time}</span>
+            </div>
+            <div>${data.msg}${attachHtml}</div>
+        `;
+
+        chatBox.appendChild(div);
+        chatBox.scrollTop = chatBox.scrollHeight;
+    });
+</script>
+{% endblock %}

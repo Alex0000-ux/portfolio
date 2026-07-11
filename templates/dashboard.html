@@ -1,0 +1,160 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div
+    style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 40px; flex-wrap: wrap; gap: 20px;">
+    <div>
+        <h2 style="font-size: 2.5rem;">Benvenuto, <span class="text-neon">{{ current_user.name }}</span> 👋</h2>
+        <p style="color: var(--text-muted); font-size: 1.1rem;">Gestisci qui i tuoi progetti web in tempo reale.</p>
+    </div>
+    {% if not current_user.is_admin %}
+    <button onclick="document.getElementById('reviewModal').style.display='flex'" class="btn btn-secondary">
+        <i class="fa-solid fa-star" style="color: #fbbf24;"></i> Lascia una Recensione
+    </button>
+    {% endif %}
+</div>
+
+<!-- Layout: Se non è admin, mostra griglia a due colonne. Se admin, singola colonna centrata -->
+{% if not current_user.is_admin %}
+<div style="display: grid; grid-template-columns: 1fr 1.8fr; gap: 32px; align-items: start;">
+{% else %}
+<div style="display: grid; grid-template-columns: 1fr; gap: 32px; align-items: start;">
+{% endif %}
+
+    {% if not current_user.is_admin %}
+    <!-- MODULO NUOVA COMMISSIONE (Visibile SOLO agli utenti) -->
+    <div class="neon-card">
+        <h3 style="margin-bottom: 24px; font-size: 1.3rem;"><i class="fa-solid fa-rocket text-neon"></i> Nuova
+            Commissione</h3>
+        <form method="POST" action="/dashboard">
+            <div class="form-group">
+                <label>Sito / Dominio</label>
+                <input type="text" name="site_name" placeholder="es. miosito.it" required>
+            </div>
+            <div class="form-group">
+                <label>Nome Attività</label>
+                <input type="text" name="business_name" placeholder="es. Rossi Spa" required>
+            </div>
+            <div class="form-group">
+                <label>Telefono</label>
+                <input type="text" name="phone" placeholder="es. +39 333 1234567" required>
+            </div>
+            <div class="form-group">
+                <label>Dettagli & Colori</label>
+                <textarea name="description" rows="4" placeholder="Descrivi il design e le funzioni che desideri..."
+                    required></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary" style="width: 100%;">Invia Progetto</button>
+        </form>
+    </div>
+    {% endif %}
+
+    <!-- ELENCO PROGETTI -->
+    <div style="display: flex; flex-direction: column; gap: 24px;">
+        <h3 style="font-size: 1.5rem;">I Tuoi Progetti Attivi</h3>
+
+        {% if not requests %}
+        <div class="neon-card" style="text-align: center; color: var(--text-muted); padding: 60px;">
+            <i class="fa-solid fa-folder-open" style="font-size: 3rem; margin-bottom: 16px; opacity: 0.5;"></i><br>
+            Nessun progetto in corso.
+        </div>
+        {% else %}
+        {% for req in requests %}
+        <div class="neon-card" style="padding: 24px;">
+            <div
+                style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 16px; margin-bottom: 16px;">
+                <h4 style="font-size: 1.4rem; color: var(--primary-dark);">{{ req.site_name }} <span
+                        style="font-weight: 400; color: var(--text-muted); font-size: 1rem;">({{ req.business_name
+                        }})</span></h4>
+                <span
+                    class="badge {% if req.status == 'In Attesa' %}badge-pending{% elif req.status == 'In Lavorazione' %}badge-progress{% else %}badge-completed{% endif %}">
+                    {{ req.status }}
+                </span>
+            </div>
+
+            <!-- SEZIONE FINANZIARIA: Preventivo Costruzione -->
+            {% if req.cost > 0 %}
+            <div class="finance-box">
+                <div>
+                    <span
+                        style="font-size: 0.8rem; font-weight: 800; color: var(--text-muted); text-transform: uppercase;">Preventivo
+                        Realizzazione</span><br>
+                    <strong>€ {{ "%.2f"|format(req.cost) }}</strong>
+                </div>
+                {% if not current_user.is_admin %}
+                {% if not req.quote_accepted %}
+                <form method="POST" action="/dashboard/accept_quote/{{ req.id }}">
+                    <button type="submit" class="btn btn-success btn-sm"
+                        style="padding: 8px 16px; font-size: 0.85rem;"><i class="fa-solid fa-check"></i> Accetta
+                        Preventivo</button>
+                </form>
+                {% else %}
+                <span class="badge badge-completed"><i class="fa-solid fa-check-double"></i> Accettato</span>
+                {% endif %}
+                {% endif %}
+            </div>
+            {% endif %}
+
+            <!-- SEZIONE FINANZIARIA: Pagamento Periodico -->
+            {% if req.periodic_amount > 0 %}
+            <div class="finance-box" style="border-color: var(--accent-purple); background: #fdfcff;">
+                <div>
+                    <span
+                        style="font-size: 0.8rem; font-weight: 800; color: var(--accent-purple); text-transform: uppercase;">{{
+                        req.periodic_desc }} (Periodico)</span><br>
+                    <strong>€ {{ "%.2f"|format(req.periodic_amount) }}</strong>
+                </div>
+                {% if not current_user.is_admin %}
+                {% if not req.periodic_accepted %}
+                <form method="POST" action="/dashboard/accept_periodic/{{ req.id }}">
+                    <button type="submit" class="btn btn-primary btn-sm"
+                        style="padding: 8px 16px; font-size: 0.85rem;"><i class="fa-solid fa-check"></i> Approva
+                        Abbonamento</button>
+                </form>
+                {% else %}
+                <span class="badge badge-completed"><i class="fa-solid fa-check-double"></i> Attivo</span>
+                {% endif %}
+                {% endif %}
+            </div>
+            {% endif %}
+
+            <div style="margin-top: 24px;">
+                <a href="/chat/{{ req.id }}" class="btn btn-primary">
+                    <i class="fa-solid fa-comments"></i> Entra nella Chat del Progetto
+                </a>
+            </div>
+        </div>
+        {% endfor %}
+        {% endif %}
+    </div>
+
+    <!-- MODALE RECENSIONE -->
+    <div id="reviewModal"
+        style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.6); z-index: 2000; align-items: center; justify-content: center;">
+        <div class="neon-card" style="background: white; width: 90%; max-width: 500px; padding: 32px; position: relative;">
+            <button onclick="document.getElementById('reviewModal').style.display='none'"
+                style="position: absolute; top: 16px; right: 16px; background: none; border: none; font-size: 1.5rem; cursor: pointer;">&times;</button>
+            <h3 style="margin-bottom: 24px;">La tua opinione conta</h3>
+            <form method="POST" action="/submit_review">
+                <div class="form-group">
+                    <label>Nome Utente</label>
+                    <input type="text" name="author_name" value="{{ current_user.name }}" required>
+                </div>
+                <div class="form-group">
+                    <label>Sito in Questione</label>
+                    <input type="text" name="site_name" required>
+                </div>
+                <div class="form-group">
+                    <label>Valutazione (da 0 a 5)</label>
+                    <input type="number" name="rating" step="0.5" min="0" max="5" required>
+                </div>
+                <div class="form-group">
+                    <label>Descrizione</label>
+                    <textarea name="description" rows="4" required></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%;">Invia Recensione</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

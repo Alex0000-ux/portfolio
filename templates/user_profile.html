@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="container" style="padding-top: 100px;">
+    <!-- Header Profilo con stile Card -->
+    <div class="neon-card" style="margin-bottom: 30px;">
+        <h2 class="text-neon" style="margin-bottom: 10px;">Profilo Cliente: {{ user.name }}</h2>
+        <p><strong>Email:</strong> {{ user.email }}</p>
+        <p><strong>Totale Commissioni Richieste:</strong> {{ requests|length }}</p>
+    </div>
+
+    <h3 style="margin-bottom: 20px;">Storico Commissioni</h3>
+
+    {% if requests %}
+    <div style="display: flex; flex-direction: column; gap: 20px;">
+        {% for req in requests %}
+        <div class="neon-card">
+            <h4 style="margin-bottom: 10px;">{{ req.site_name }}</h4>
+            <p style="margin: 5px 0;"><strong>Business:</strong> {{ req.business_name }}</p>
+            <p style="margin: 5px 0;"><strong>Telefono:</strong> {{ req.phone }}</p>
+            <p style="margin: 5px 0;"><strong>Stato:</strong> {{ req.status }}</p>
+
+            <div style="margin-top: 20px;">
+                <a href="/chat/{{ req.id }}" class="btn btn-primary">Apri Chat</a>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="neon-card">
+        <p>Questo utente non ha ancora richiesto commissioni.</p>
+    </div>
+    {% endif %}
+
+    <div style="margin-top: 30px;">
+        <a href="/admin" class="btn btn-secondary">← Torna al Pannello Admin</a>
+    </div>
+</div>
+
+{% endblock %}

@@ -1,0 +1,152 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<!-- HERO SECTION -->
+<header class="hero" style="padding: 80px 0;">
+    <div class="container text-center">
+        <h1 style="font-size: 3.5rem; margin-bottom: 20px; line-height: 1.1;">Soluzioni Web<br><span
+                class="text-neon">su misura per il tuo business.</span></h1>
+        <p style="font-size: 1.25rem; color: var(--text-muted); max-width: 700px; margin: 0 auto 40px;">
+            Dimmi la tua idea, al resto ci penso io! Semplice, intuitivo, <strong>affidabile</strong>.</p>
+        <div style="display: flex; gap: 16px; justify-content: center;">
+            <a href="#portfolio" class="btn btn-primary">Progetti realizzati</a>
+            <button onclick="document.getElementById('reviewModal').style.display='flex'" class="btn btn-secondary"
+                style="border-color: var(--accent-purple); color: var(--accent-purple) !important;">
+                <i class="fa-solid fa-star"></i> Lascia una Recensione
+            </button>
+        </div>
+    </div>
+</header>
+
+<!-- CHI SONO -->
+<section class="section" id="about" style="background: white; border-radius: 30px; padding: 60px 0;">
+    <div class="container">
+        <div style="max-width: 800px; margin: 0 auto; text-align: center;">
+            <h2 style="font-size: 2.2rem; margin-bottom: 24px;">Chi sono</h2>
+            <p style="font-size: 1.1rem; color: var(--text-main); line-height: 1.8;">
+                Sono Alessandro Mea, ho 17 anni e sono nato a Ragusa. Da sempre sono appassionato di tecnologia
+                 e sviluppo web. Ho iniziato a programmare all'età di 12 anni e da 
+                 allora ho continuato a crescere le mie competenze. Il mio obiettivo è aiutare le aziende a realizzare
+                  progetti web personalizzati, funzionali e moderni, offrendo soluzioni su misura per ogni esigenza.
+            </p>
+        </div>
+    </div>
+</section>
+
+<!-- LINGUAGGI -->
+<section class="section" id="skills">
+    <div class="container">
+        <h2 style="font-size: 2.2rem; text-align: center; margin-bottom: 40px;">Linguaggi & Tecnologie</h2>
+        <div class="skills-grid" id="skills-grid">
+            <div class="neon-card text-center">
+                <i class="fa-brands fa-java text-neon" style="font-size: 2.5rem; margin-bottom: 16px;"></i>
+                <h3 style="margin-bottom: 8px;">Java Ecosystem</h3>
+                <p style="color: var(--text-muted);">Sviluppo plugin minecraft complessi e architetture scalabili.</p>
+            </div>
+            <div class="neon-card text-center">
+                <i class="fa-brands fa-python text-neon" style="font-size: 2.5rem; margin-bottom: 16px;"></i>
+                <h3 style="margin-bottom: 8px;">Full-Stack Web</h3>
+                <p style="color: var(--text-muted);">HTML5, CSS3, JavaScript (Ottima) + Python (Flask) (Media).</p>
+            </div>
+            <div class="neon-card text-center">
+                <i class="fa-solid fa-database text-neon" style="font-size: 2.5rem; margin-bottom: 16px;"></i>
+                <h3 style="margin-bottom: 8px;">Database SQL e MySQL</h3>
+                <p style="color: var(--text-muted);">Progettazione e gestione di database.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- SEZIONE RECENSIONI (PUBBLICA) -->
+<section class="section" id="reviews"
+    style="background: white; border-radius: 30px; padding: 60px 0; margin-bottom: 60px;">
+    <div class="container">
+        <h2 style="font-size: 2.2rem; text-align: center; margin-bottom: 40px;">Dicono dei miei servizi</h2>
+        <div class="skills-grid">
+            {% if not reviews %}
+            <p style="color: var(--text-muted); text-align: center; width: 100%;">Nessuna recensione presente al
+                momento.</p>
+            {% else %}
+            {% for rev in reviews %}
+            <div class="neon-card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <strong style="font-size: 1.1rem; color: var(--primary-dark);">{{ rev.author_name }}</strong>
+                    <div style="color: #fbbf24; font-size: 0.9rem;">
+                        {% set full_stars = rev.rating | round(0, 'floor') | int %}
+                        {% set half_star = (rev.rating % 1 != 0) %}
+                        {% set empty_stars = 5 - full_stars - (1 if half_star else 0) %}
+                        {% for i in range(full_stars) %}<i class="fa-solid fa-star"></i>{% endfor %}
+                        {% if half_star %}<i class="fa-solid fa-star-half-stroke"></i>{% endif %}
+                        {% for i in range(empty_stars) %}<i class="fa-regular fa-star"></i>{% endfor %}
+                    </div>
+                </div>
+                <p
+                    style="font-size: 0.85rem; color: var(--accent-purple); text-transform: uppercase; font-weight: 800; margin-bottom: 12px;">
+                    {{ rev.site_name }}</p>
+                <p style="color: var(--text-muted); font-size: 0.95rem; font-style: italic;">"{{ rev.description }}"</p>
+            </div>
+            {% endfor %}
+            {% endif %}
+        </div>
+    </div>
+</section>
+
+<!-- MODALE INSERIMENTO RECENSIONE -->
+<div id="reviewModal"
+    style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.6); z-index: 2000; align-items: center; justify-content: center; backdrop-filter: blur(4px);">
+    <div class="neon-card" style="background: white; width: 90%; max-width: 500px; padding: 32px; position: relative;">
+        <button onclick="document.getElementById('reviewModal').style.display='none'"
+            style="position: absolute; top: 16px; right: 16px; background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--text-muted);">&times;</button>
+        <h3 style="margin-bottom: 24px; color: var(--primary-dark);">La tua opinione conta</h3>
+        <form method="POST" action="/submit_review">
+            <div class="form-group">
+                <label>Nome Utente</label>
+                <input type="text" name="author_name"
+                    value="{% if current_user.is_authenticated %}{{ current_user.name }}{% endif %}"
+                    placeholder="Il tuo nome" required>
+            </div>
+            <div class="form-group">
+                <label>Sito / Progetto in Questione</label>
+                <input type="text" name="site_name" placeholder="es. miosito.it" required>
+            </div>
+            <div class="form-group">
+                <label>Valutazione (da 0 a 5)</label>
+                <input type="number" name="rating" step="0.5" min="0" max="5" placeholder="5" required>
+            </div>
+            <div class="form-group">
+                <label>Descrizione</label>
+                <textarea name="description" rows="3" placeholder="Come ti sei trovato?" required></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary" style="width: 100%;">Invia Recensione</button>
+        </form>
+    </div>
+</div>
+
+<!-- PORTFOLIO -->
+<section class="section" id="portfolio" style="background: #f1f5f9; border-radius: 30px; padding: 60px 0;">
+    <div class="container">
+        <h2 style="font-size: 2.2rem; text-align: center; margin-bottom: 40px;">Progetti Realizzati</h2>
+        <div class="portfolio-grid">
+                <!-- SCHEDA 1 -->
+                <div class="neon-card" style="padding: 0; overflow: hidden;">
+
+                    <div style="height: 300px; width: 100%; overflow: hidden;">
+                        <img src="{{ url_for('static', filename='img/sitiRealizzati/fateDeiFiori.png') }}" alt="Anteprima Fate dei Fiori"
+                            style="width: 100%; height: 100%; object-fit: cover; display: block;">
+                    </div>
+
+                    <div style="padding: 24px;">
+                        <h3 style="margin-bottom: 8px;">Fate dei Fiori Ragusa</h3>
+                        <p style="color: var(--text-muted); margin-bottom: 16px;">Sito web di presentazione sui servizi offerti
+                            con modulo contatti whatsapp, gallerie personalizzate di foto e video.
+                        </p>
+                        <a href="https://fatedeifiorirg.it" target="_blank" class="btn btn-secondary" style="width: 100%;">Visita il
+                            Sito</a>
+                    </div>
+                </div>
+                
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}

@@ -1,0 +1,10 @@
+flask
+flask-sqlalchemy
+flask-login
+flask-socketio
+flask-mail
+authlib
+requests
+email-validator
+gunicorn
+python-dotenv
