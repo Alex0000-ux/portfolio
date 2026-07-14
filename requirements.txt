@@ -4,6 +4,7 @@ Flask-Login
 Flask-SocketIO
 Flask-Mail
 Authlib
+requests
 python-dotenv
 psycopg2-binary
 gunicorn
