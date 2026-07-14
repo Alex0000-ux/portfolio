@@ -124,6 +124,14 @@ class Review(db.Model):
     approved = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+
+# =========================================================
+# CREAZIONE TABELLE AUTOMATICA (PER RENDER / WSGI)
+# =========================================================
+with app.app_context():
+    db.create_all()
+
+
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
@@ -454,6 +462,4 @@ def handle_message(data):
 
 
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
     socketio.run(app, debug=True)
