@@ -1,5 +1,5 @@
-import eventlet
-eventlet.monkey_patch()  # DEVE stare prima di tutti gli altri import!
+from gevent import monkey
+monkey.patch_all()
 
 import os
 import threading

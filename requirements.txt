@@ -9,4 +9,5 @@ email-validator
 gunicorn
 python-dotenv
 psycopg2-binary
-eventlet
+gevent
+gevent-websocket
