@@ -54,9 +54,9 @@ db = SQLAlchemy(app)
 
 # SocketIO ottimizzato con Eventlet
 socketio = SocketIO(
-    app, 
-    cors_allowed_origins="*", 
-    async_mode='eventlet',
+    app,
+    cors_allowed_origins="*",
+    async_mode='gevent',  # <--- Deve essere esattamente 'gevent'
     ping_timeout=60,
     ping_interval=25
 )
