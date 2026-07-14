@@ -8,3 +8,4 @@ requests
 email-validator
 gunicorn
 python-dotenv
+psycopg2-binary

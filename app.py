@@ -1,4 +1,5 @@
 import os
+import threading
 import werkzeug.utils
 from datetime import datetime
 from dotenv import load_dotenv
@@ -16,8 +17,26 @@ ADMIN_EMAIL = os.getenv("ADMIN_EMAIL")
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'default-dev-key')
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///portfolio.db'
+
+# =========================================================
+# CONFIGURAZIONE DATABASE POSTGRESQL (NEON CLOUD)
+# =========================================================
+NEON_DB_URL = "postgresql://neondb_owner:npg_dxSrXjnUl0g4@ep-autumn-field-asfmciz0-pooler.c-4.eu-central-1.aws.neon.tech/neondb?sslmode=require"
+
+db_url = os.getenv('DATABASE_URL', NEON_DB_URL)
+
+# Compatibilità formato URI SQLAlchemy
+if db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
+
+app.config['SQLALCHEMY_DATABASE_URI'] = db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Ottimizzazione Connessione PostgreSQL / Cloud Pooler
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_pre_ping': True,
+    'pool_recycle': 280,
+}
 
 # Configurazione Mail
 app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER')
@@ -118,22 +137,33 @@ def inject_notifications():
 
 
 # =========================================================
-# HELPER NOTIFICHE & EMAIL
+# HELPER NOTIFICHE & EMAIL ASINCRONE
 # =========================================================
+def send_async_email(app_instance, msg):
+    """Invia l'email in un thread separato senza bloccare il web server o il DB."""
+    with app_instance.app_context():
+        try:
+            mail.send(msg)
+        except Exception as e:
+            print(f"Errore durante l'invio asincrono dell'email: {e}")
+
 def create_notification_and_email(user_id, message, category, link):
     user = User.query.get(user_id)
-    if not user: return
+    if not user: 
+        return
     
     notif = Notification(user_id=user.id, message=message, category=category, link=link)
     db.session.add(notif)
     
-    if user.email and app.config['MAIL_USERNAME']:
+    if user.email and app.config.get('MAIL_USERNAME'):
         try:
             msg = Message(subject=f"Aggiornamento Progetto: {category}", recipients=[user.email])
             msg.body = f"Ciao {user.name},\n\nHai ricevuto un nuovo aggiornamento:\n\n{message}\n\nAccedi alla piattaforma per visualizzare i dettagli."
-            mail.send(msg)
+            
+            app_obj = app._get_current_object()
+            threading.Thread(target=send_async_email, args=(app_obj, msg)).start()
         except Exception as e:
-            print(f"Errore invio email a {user.email}: {e}")
+            print(f"Errore preparazione email per {user.email}: {e}")
 
 
 # =========================================================
@@ -156,7 +186,7 @@ def auth():
 
     user = User.query.filter_by(email=user_info['email']).first()
     if not user:
-        is_admin = True if user_info['email'].lower() == ADMIN_EMAIL.lower() else False
+        is_admin = True if ADMIN_EMAIL and user_info['email'].lower() == ADMIN_EMAIL.lower() else False
         user = User(
             google_id=user_info['sub'],
             name=user_info.get('name', 'Cliente'),
@@ -179,7 +209,6 @@ def logout():
 @app.route('/dashboard', methods=['GET', 'POST'])
 @login_required
 def dashboard():
-    # Impedisce all'admin di stare nella dashboard clienti
     if current_user.is_admin:
         return redirect(url_for('admin'))
 
@@ -252,7 +281,6 @@ def admin():
     all_requests = SiteRequest.query.order_by(SiteRequest.created_at.desc()).all()
     all_reviews = Review.query.order_by(Review.created_at.desc()).all()
     
-    # Prendi solo gli utenti normali (esclude l'admin)
     client_users = User.query.filter(User.is_admin != True).all()
     
     return render_template('admin.html', requests=all_requests, reviews=all_reviews, users=client_users)
@@ -271,21 +299,27 @@ def user_profile(user_id):
 @app.route('/admin/update_status/<int:request_id>', methods=['POST'])
 @login_required
 def update_status(request_id):
-    if not current_user.is_admin: return redirect(url_for('dashboard'))
+    if not current_user.is_admin: 
+        return redirect(url_for('dashboard'))
+        
     req = SiteRequest.query.get_or_404(request_id)
     
     old_status, old_cost, old_periodic_amount = req.status, req.cost, req.periodic_amount
     req.status = request.form.get('status')
     
-    try: req.cost = float(request.form.get('cost', 0))
-    except ValueError: pass
+    try: 
+        req.cost = float(request.form.get('cost', 0))
+    except ValueError: 
+        pass
     
     if req.cost != old_cost: 
         req.quote_accepted = False
         create_notification_and_email(req.user_id, f"Il preventivo per '{req.site_name}' è stato modificato.", "Preventivo", "/dashboard")
 
-    try: req.periodic_amount = float(request.form.get('periodic_amount', 0))
-    except ValueError: pass
+    try: 
+        req.periodic_amount = float(request.form.get('periodic_amount', 0))
+    except ValueError: 
+        pass
     
     if req.periodic_amount != old_periodic_amount: 
         req.periodic_accepted = False
@@ -303,7 +337,9 @@ def update_status(request_id):
 @app.route('/admin/delete/<int:request_id>', methods=['POST'])
 @login_required
 def delete_request(request_id):
-    if not current_user.is_admin: return redirect(url_for('dashboard'))
+    if not current_user.is_admin: 
+        return redirect(url_for('dashboard'))
+        
     req = SiteRequest.query.get_or_404(request_id)
     db.session.delete(req)
     db.session.commit()
@@ -358,9 +394,11 @@ def chat(request_id):
 @app.route('/chat/<int:request_id>/upload', methods=['POST'])
 @login_required
 def upload_chat_file(request_id):
-    if 'file' not in request.files: return jsonify({'success': False, 'error': 'Nessun file'})
+    if 'file' not in request.files: 
+        return jsonify({'success': False, 'error': 'Nessun file'})
     file = request.files['file']
-    if file.filename == '': return jsonify({'success': False, 'error': 'Nome file vuoto'})
+    if file.filename == '': 
+        return jsonify({'success': False, 'error': 'Nome file vuoto'})
 
     filename = werkzeug.utils.secure_filename(file.filename)
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
@@ -400,7 +438,8 @@ def on_join(data):
 def handle_message(data):
     room = str(data['room'])
     msg_content = data['message'].strip()
-    if not msg_content: return
+    if not msg_content: 
+        return
         
     new_msg = ChatMessage(request_id=int(room), user_id=current_user.id, content=msg_content, is_from_admin=current_user.is_admin)
     db.session.add(new_msg)
