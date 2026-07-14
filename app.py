@@ -1,3 +1,6 @@
+import eventlet
+eventlet.monkey_patch()  # DEVE stare prima di tutti gli altri import!
+
 import os
 import threading
 import werkzeug.utils
@@ -25,23 +28,20 @@ NEON_DB_URL = "postgresql://neondb_owner:npg_dxSrXjnUl0g4@ep-autumn-field-asfmci
 
 db_url = os.getenv('DATABASE_URL', NEON_DB_URL)
 
-# Compatibilità formato URI SQLAlchemy
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
 
 app.config['SQLALCHEMY_DATABASE_URI'] = db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
-# Ottimizzazione Connessione PostgreSQL / Cloud Pooler
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     'pool_pre_ping': True,
     'pool_recycle': 280,
 }
 
 # Configurazione Mail
-app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER')
+app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER', 'smtp.gmail.com')
 app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT', 587))
-app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS') == 'True'
+app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', 'True') == 'True'
 app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
 app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
 app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_USERNAME')
@@ -51,7 +51,16 @@ app.config['UPLOAD_FOLDER'] = os.path.join(app.root_path, 'static/uploads')
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 db = SQLAlchemy(app)
-socketio = SocketIO(app, cors_allowed_origins="*")
+
+# SocketIO ottimizzato con Eventlet
+socketio = SocketIO(
+    app, 
+    cors_allowed_origins="*", 
+    async_mode='eventlet',
+    ping_timeout=60,
+    ping_interval=25
+)
+
 mail = Mail(app)
 
 login_manager = LoginManager(app)
@@ -126,7 +135,7 @@ class Review(db.Model):
 
 
 # =========================================================
-# CREAZIONE TABELLE AUTOMATICA (PER RENDER / WSGI)
+# CREAZIONE TABELLE AUTOMATICA
 # =========================================================
 with app.app_context():
     db.create_all()
@@ -148,12 +157,13 @@ def inject_notifications():
 # HELPER NOTIFICHE & EMAIL ASINCRONE
 # =========================================================
 def send_async_email(app_instance, msg):
-    """Invia l'email in un thread separato senza bloccare il web server o il DB."""
+    """Invia l'email in background loggando gli errori nei log di Render."""
     with app_instance.app_context():
         try:
             mail.send(msg)
+            print(f"[EMAIL SUCCESS] Inviata con successo a {msg.recipients}")
         except Exception as e:
-            print(f"Errore durante l'invio asincrono dell'email: {e}")
+            print(f"[EMAIL ERROR] Impossibile inviare email: {str(e)}")
 
 def create_notification_and_email(user_id, message, category, link):
     user = User.query.get(user_id)
@@ -171,7 +181,7 @@ def create_notification_and_email(user_id, message, category, link):
             app_obj = app._get_current_object()
             threading.Thread(target=send_async_email, args=(app_obj, msg)).start()
         except Exception as e:
-            print(f"Errore preparazione email per {user.email}: {e}")
+            print(f"[EMAIL PREPARATION ERROR] {e}")
 
 
 # =========================================================
