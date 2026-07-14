@@ -105,13 +105,6 @@ class Review(db.Model):
     approved = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-# =========================================================
-# INIZIALIZZAZIONE GLOBALE DATABASE PER GUNICORN
-# =========================================================
-with app.app_context():
-    db.create_all()
-
-
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
@@ -422,5 +415,6 @@ def handle_message(data):
 
 
 if __name__ == '__main__':
-    # Questo serve per testarlo localmente, in produzione se ne occuperà Gunicorn
+    with app.app_context():
+        db.create_all()
     socketio.run(app, debug=True)

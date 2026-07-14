@@ -417,3 +417,22 @@ select:focus {
     padding: 80px 0;
 }
 
+/* =========================================
+   AGGIUNTA: ZOOM 50% SU SMARTPHONE
+   ========================================= */
+@media screen and (max-width: 768px) {
+    body {
+        /* Metodo principale supportato da Safari iOS e Chrome Android */
+        zoom: 0.5;
+    }
+
+    /* Fallback per Firefox (che non supporta pienamente "zoom") */
+    @-moz-document url-prefix() {
+        body {
+            transform: scale(0.5);
+            transform-origin: top center;
+            /* Raddoppia la larghezza per compensare il rimpicciolimento del 50% */
+            width: 200%;
+        }
+    }
+}
