@@ -5,6 +5,7 @@ Flask-SocketIO
 Flask-Mail
 Authlib
 python-dotenv
-eventlet
 psycopg2-binary
-eventlet
+gunicorn
+gevent
+gevent-websocket
