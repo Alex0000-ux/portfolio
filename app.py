@@ -12,6 +12,7 @@ from flask_login import LoginManager, UserMixin, login_user, logout_user, login_
 from authlib.integrations.flask_client import OAuth
 from flask_socketio import SocketIO, join_room, emit
 from flask_mail import Mail, Message
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 # Carica le variabili dal file .env
 load_dotenv()
