@@ -20,6 +20,7 @@ ADMIN_EMAIL = os.getenv("ADMIN_EMAIL")
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'default-dev-key')
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
 # =========================================================
 # CONFIGURAZIONE DATABASE POSTGRESQL (NEON CLOUD)
@@ -240,9 +241,13 @@ def dashboard():
         )
         db.session.add(new_req)
         
+        # 1. NOTIFICA ED EMAIL ALL'ADMIN
         admin_user = User.query.filter_by(is_admin=True).first()
         if admin_user:
             create_notification_and_email(admin_user.id, f"Nuova commissione ricevuta da {current_user.name}: {new_req.site_name}", "Nuova Commissione", "/admin")
+            
+        # 2. NOTIFICA ED EMAIL AL CLIENTE (Aggiungi questa parte!)
+        create_notification_and_email(current_user.id, f"Grazie per la tua richiesta! Abbiamo preso in carico il progetto per '{new_req.site_name}'. Ti risponderemo al più presto.", "Conferma Ricezione", "/dashboard")
             
         db.session.commit()
         flash('Richiesta inviata con successo!', 'success')
