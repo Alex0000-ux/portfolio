@@ -180,8 +180,9 @@ def create_notification_and_email(user_id, message, category, link):
             msg = Message(subject=f"Aggiornamento Progetto: {category}", recipients=[user.email])
             msg.body = f"Ciao {user.name},\n\nHai ricevuto un nuovo aggiornamento:\n\n{message}\n\nAccedi alla piattaforma per visualizzare i dettagli."
             
-            app_obj = app._get_current_object()
-            threading.Thread(target=send_async_email, args=(app_obj, msg)).start()
+            # ELIMINA la riga app_obj = app._get_current_object()
+            # Passa direttamente 'app' come argomento al thread:
+            threading.Thread(target=send_async_email, args=(app, msg)).start()
         except Exception as e:
             print(f"[EMAIL PREPARATION ERROR] {e}")
 
