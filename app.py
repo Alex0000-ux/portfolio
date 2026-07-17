@@ -2,8 +2,19 @@ from gevent import monkey
 monkey.patch_all()
 
 import gevent
+import socket
+
+# FIX PER RENDER + GEVENT: Forza la risoluzione DNS solo su IPv4
+# Impedisce l'errore [Errno 101] Network is unreachable
+orig_getaddrinfo = socket.getaddrinfo
+def patched_getaddrinfo(host, port, family=0, *args, **kwargs):
+    if family == 0 or family == socket.AF_UNSPEC:
+        family = socket.AF_INET  # Forza IPv4 ed esclude IPv6
+    return orig_getaddrinfo(host, port, family, *args, **kwargs)
+socket.getaddrinfo = patched_getaddrinfo
+
 import os
-import requests
+import threading
 import werkzeug.utils
 from datetime import datetime
 from dotenv import load_dotenv
@@ -12,6 +23,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from authlib.integrations.flask_client import OAuth
 from flask_socketio import SocketIO, join_room, emit
+from flask_mail import Mail, Message
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 # Carica le variabili dal file .env
@@ -27,6 +39,7 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 # CONFIGURAZIONE DATABASE POSTGRESQL (NEON CLOUD)
 # =========================================================
 NEON_DB_URL = "postgresql://neondb_owner:npg_dxSrXjnUl0g4@ep-autumn-field-asfmciz0-pooler.c-4.eu-central-1.aws.neon.tech/neondb?sslmode=require"
+
 db_url = os.getenv('DATABASE_URL', NEON_DB_URL)
 
 if db_url.startswith("postgres://"):
@@ -39,30 +52,41 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     'pool_recycle': 280,
 }
 
-# Configurazione Upload File
+# Configurazione Mail
+app.config['MAIL_SERVER'] = 'smtp.gmail.com'
+app.config['MAIL_PORT'] = 465
+app.config['MAIL_USE_TLS'] = False
+app.config['MAIL_USE_SSL'] = True
+app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
+app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
+app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_USERNAME')
+
+# Configurazione Upload File Chat
 app.config['UPLOAD_FOLDER'] = os.path.join(app.root_path, 'static/uploads')
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 db = SQLAlchemy(app)
 
-# SocketIO ottimizzato con Gevent
+# SocketIO ottimizzato con Eventlet
 socketio = SocketIO(
     app,
     cors_allowed_origins="*",
-    async_mode='gevent',
+    async_mode='gevent',  # <--- Deve essere esattamente 'gevent'
     ping_timeout=60,
     ping_interval=25
 )
 
+mail = Mail(app)
+
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
-# Configurazione Google OAuth
+# Configurazione Google OAuth protetta
 oauth = OAuth(app)
 google = oauth.register(
     name='google',
     client_id=os.getenv('GOOGLE_CLIENT_ID'), 
-    client_secret=os.getenv('GOOGLE_CLIENT_SECRET'),                      
+    client_secret=os.getenv('GOOGLE_CLIENT_SECRET'),                   
     server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
     client_kwargs={'scope': 'openid email profile'}
 )
@@ -70,12 +94,15 @@ google = oauth.register(
 # =========================================================
 # MODELLI DATABASE
 # =========================================================
+
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     google_id = db.Column(db.String(120), unique=True)
     name = db.Column(db.String(100))
     email = db.Column(db.String(120), unique=True, nullable=False)
     is_admin = db.Column(db.Boolean, default=False)
+    requests = db.relationship('SiteRequest', backref='client', lazy=True)
+    messages = db.relationship('ChatMessage', backref='sender', lazy=True)
     notifications = db.relationship('Notification', backref='user', lazy=True, cascade="all, delete-orphan")
 
 class Notification(db.Model):
@@ -91,55 +118,99 @@ class SiteRequest(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     site_name = db.Column(db.String(100), nullable=False)
+    business_name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text, nullable=False)
+    phone = db.Column(db.String(20), nullable=False)
     status = db.Column(db.String(20), default='In Attesa')
-    # ... altri campi invariati ...
+    cost = db.Column(db.Float, default=0.0)
+    quote_accepted = db.Column(db.Boolean, default=False)
+    periodic_amount = db.Column(db.Float, default=0.0)
+    periodic_desc = db.Column(db.String(200), default='')
+    periodic_accepted = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    messages = db.relationship('ChatMessage', backref='project', lazy=True, cascade="all, delete-orphan")
 
 class ChatMessage(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     request_id = db.Column(db.Integer, db.ForeignKey('site_request.id'), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    is_from_admin = db.Column(db.Boolean, default=False)
     content = db.Column(db.Text, nullable=False)
+    attachment = db.Column(db.String(255), nullable=True)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
 
 class Review(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     author_name = db.Column(db.String(100), nullable=False)
+    site_name = db.Column(db.String(100), nullable=False)
+    rating = db.Column(db.Float, nullable=False)
+    description = db.Column(db.Text, nullable=False)
     approved = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+
+# =========================================================
+# CREAZIONE TABELLE AUTOMATICA
+# =========================================================
 with app.app_context():
     db.create_all()
 
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+@app.context_processor
+def inject_notifications():
+    if current_user.is_authenticated:
+        unread = Notification.query.filter_by(user_id=current_user.id, is_read=False).count()
+        return dict(unread_notifications=unread)
+    return dict(unread_notifications=0)
+
+
 # =========================================================
-# HELPER EMAIL (RESEND API)
+# HELPER NOTIFICHE & EMAIL ASINCRONE
 # =========================================================
-def send_async_email_api(api_key, to_email, subject, body_text):
-    url = "https://api.resend.com/emails"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "from": "Notifiche App <onboarding@resend.dev>",
-        "to": [to_email],
-        "subject": subject,
-        "text": body_text
-    }
+def send_async_email_api(mail_username, mail_password, to_email, subject, body_text):
+    """Invia l'email bypassando Flask-Mail e usando il modulo nativo."""
     try:
-        requests.post(url, headers=headers, json=payload, timeout=10)
+        import smtplib
+        from email.mime.text import MIMEText
+        
+        msg = MIMEText(body_text)
+        msg['Subject'] = subject
+        msg['From'] = mail_username
+        msg['To'] = to_email
+        
+        # Connessione pulita SSL sulla porta 465
+        server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
+        server.login(mail_username, mail_password)
+        server.sendmail(mail_username, [to_email], msg.as_string())
+        server.quit()
+        print(f"[EMAIL SUCCESS] Inviata con successo tramite socket nativo a {to_email}")
     except Exception as e:
-        print(f"[EMAIL ERROR] {e}")
+        print(f"[EMAIL ERROR] Fallimento definitivo invio: {str(e)}")
 
 def create_notification_and_email(user_id, message, category, link):
     user = User.query.get(user_id)
-    if not user: return
+    if not user: 
+        return
     
     notif = Notification(user_id=user.id, message=message, category=category, link=link)
     db.session.add(notif)
     
-    api_key = os.getenv('RESEND_API_KEY')
-    if user.email and api_key:
-        gevent.spawn(send_async_email_api, api_key, user.email, f"Aggiornamento: {category}", message)
+    mail_username = app.config.get('MAIL_USERNAME')
+    mail_password = app.config.get('MAIL_PASSWORD')
+    
+    if user.email and mail_username and mail_password:
+        try:
+            subject = f"Aggiornamento Progetto: {category}"
+            body_text = f"Ciao {user.name},\n\nHai ricevuto un nuovo aggiornamento:\n\n{message}\n\nAccedi alla piattaforma per visualizzare i dettagli."
+            
+            # Usiamo gevent.spawn per non bloccare la richiesta dell'utente
+            gevent.spawn(send_async_email_api, mail_username, mail_password, user.email, subject, body_text)
+        except Exception as e:
+            print(f"[EMAIL PREPARATION ERROR] {e}")
 
 
 # =========================================================
