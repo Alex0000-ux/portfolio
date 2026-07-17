@@ -171,14 +171,25 @@ def inject_notifications():
 # =========================================================
 # HELPER NOTIFICHE & EMAIL ASINCRONE
 # =========================================================
-def send_async_email(app_instance, msg):
-    """Invia l'email in background loggando gli errori nei log di Render."""
-    with app_instance.app_context():
-        try:
-            mail.send(msg)
-            print(f"[EMAIL SUCCESS] Inviata con successo a {msg.recipients}")
-        except Exception as e:
-            print(f"[EMAIL ERROR] Impossibile inviare email: {str(e)}")
+def send_async_email_api(mail_username, mail_password, to_email, subject, body_text):
+    """Invia l'email bypassando Flask-Mail e usando il modulo nativo."""
+    try:
+        import smtplib
+        from email.mime.text import MIMEText
+        
+        msg = MIMEText(body_text)
+        msg['Subject'] = subject
+        msg['From'] = mail_username
+        msg['To'] = to_email
+        
+        # Connessione pulita SSL sulla porta 465
+        server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
+        server.login(mail_username, mail_password)
+        server.sendmail(mail_username, [to_email], msg.as_string())
+        server.quit()
+        print(f"[EMAIL SUCCESS] Inviata con successo tramite socket nativo a {to_email}")
+    except Exception as e:
+        print(f"[EMAIL ERROR] Fallimento definitivo invio: {str(e)}")
 
 def create_notification_and_email(user_id, message, category, link):
     user = User.query.get(user_id)
@@ -188,13 +199,16 @@ def create_notification_and_email(user_id, message, category, link):
     notif = Notification(user_id=user.id, message=message, category=category, link=link)
     db.session.add(notif)
     
-    if user.email and app.config.get('MAIL_USERNAME'):
+    mail_username = app.config.get('MAIL_USERNAME')
+    mail_password = app.config.get('MAIL_PASSWORD')
+    
+    if user.email and mail_username and mail_password:
         try:
-            msg = Message(subject=f"Aggiornamento Progetto: {category}", recipients=[user.email])
-            msg.body = f"Ciao {user.name},\n\nHai ricevuto un nuovo aggiornamento:\n\n{message}\n\nAccedi alla piattaforma per visualizzare i dettagli."
+            subject = f"Aggiornamento Progetto: {category}"
+            body_text = f"Ciao {user.name},\n\nHai ricevuto un nuovo aggiornamento:\n\n{message}\n\nAccedi alla piattaforma per visualizzare i dettagli."
             
-            # Sostituiamo threading.Thread con gevent.spawn per la massima stabilità asincrona
-            gevent.spawn(send_async_email, app, msg)
+            # Usiamo gevent.spawn per non bloccare la richiesta dell'utente
+            gevent.spawn(send_async_email_api, mail_username, mail_password, user.email, subject, body_text)
         except Exception as e:
             print(f"[EMAIL PREPARATION ERROR] {e}")
 
