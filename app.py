@@ -1,6 +1,18 @@
 from gevent import monkey
 monkey.patch_all()
 
+import gevent
+import socket
+
+# FIX PER RENDER + GEVENT: Forza la risoluzione DNS solo su IPv4
+# Impedisce l'errore [Errno 101] Network is unreachable
+orig_getaddrinfo = socket.getaddrinfo
+def patched_getaddrinfo(host, port, family=0, *args, **kwargs):
+    if family == 0 or family == socket.AF_UNSPEC:
+        family = socket.AF_INET  # Forza IPv4 ed esclude IPv6
+    return orig_getaddrinfo(host, port, family, *args, **kwargs)
+socket.getaddrinfo = patched_getaddrinfo
+
 import os
 import threading
 import werkzeug.utils
@@ -181,9 +193,8 @@ def create_notification_and_email(user_id, message, category, link):
             msg = Message(subject=f"Aggiornamento Progetto: {category}", recipients=[user.email])
             msg.body = f"Ciao {user.name},\n\nHai ricevuto un nuovo aggiornamento:\n\n{message}\n\nAccedi alla piattaforma per visualizzare i dettagli."
             
-            # ELIMINA la riga app_obj = app._get_current_object()
-            # Passa direttamente 'app' come argomento al thread:
-            threading.Thread(target=send_async_email, args=(app, msg)).start()
+            # Sostituiamo threading.Thread con gevent.spawn per la massima stabilità asincrona
+            gevent.spawn(send_async_email, app, msg)
         except Exception as e:
             print(f"[EMAIL PREPARATION ERROR] {e}")
 
