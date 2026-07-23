@@ -176,9 +176,11 @@ def send_async_email_api(mail_username, mail_password, to_email, subject, body_t
     try:
         import smtplib
         from email.mime.text import MIMEText
+        from email.header import Header
         
-        msg = MIMEText(body_text)
-        msg['Subject'] = subject
+        # FIX: Aggiunto 'utf-8' per impedire il blocco causato da lettere accentate (es. 'più')
+        msg = MIMEText(body_text, 'plain', 'utf-8')
+        msg['Subject'] = Header(subject, 'utf-8')
         msg['From'] = mail_username
         msg['To'] = to_email
         
@@ -232,16 +234,25 @@ def auth():
     user_info = token.get('userinfo') or token.get('id_token')
 
     user = User.query.filter_by(email=user_info['email']).first()
+    
+    # FIX: Utilizzo di .strip() per evitare bug legati a spazi accidentali nel .env
+    admin_env = os.getenv("ADMIN_EMAIL", "").strip().lower()
+    is_admin_check = True if admin_env and user_info['email'].lower() == admin_env else False
+
     if not user:
-        is_admin = True if ADMIN_EMAIL and user_info['email'].lower() == ADMIN_EMAIL.lower() else False
         user = User(
             google_id=user_info['sub'],
             name=user_info.get('name', 'Cliente'),
             email=user_info['email'],
-            is_admin=is_admin
+            is_admin=is_admin_check
         )
         db.session.add(user)
         db.session.commit()
+    else:
+        # FIX: Aggiorna l'account ad Admin se avevi loggato prima di correggere il .env
+        if is_admin_check and not user.is_admin:
+            user.is_admin = True
+            db.session.commit()
 
     login_user(user)
     return redirect(url_for('admin' if user.is_admin else 'dashboard'))
@@ -273,10 +284,14 @@ def dashboard():
         admin_user = User.query.filter_by(is_admin=True).first()
         if admin_user:
             create_notification_and_email(admin_user.id, f"Nuova commissione ricevuta da {current_user.name}: {new_req.site_name}", "Nuova Commissione", "/admin")
+        elif os.getenv("ADMIN_EMAIL"):
+            # Fallback di emergenza: manda l'email anche se l'admin non è registrato nel DB
+            admin_email_raw = os.getenv("ADMIN_EMAIL").strip()
+            gevent.spawn(send_async_email_api, app.config.get('MAIL_USERNAME'), app.config.get('MAIL_PASSWORD'), admin_email_raw, "Nuova Commissione", f"Nuova commissione ricevuta da {current_user.name}: {new_req.site_name}")
             
-        # 2. NOTIFICA ED EMAIL AL CLIENTE (Aggiungi questa parte!)
+        # 2. NOTIFICA ED EMAIL AL CLIENTE
         create_notification_and_email(current_user.id, f"Grazie per la tua richiesta! Abbiamo preso in carico il progetto per '{new_req.site_name}'. Ti risponderemo al più presto.", "Conferma Ricezione", "/dashboard")
-            
+
         db.session.commit()
         flash('Richiesta inviata con successo!', 'success')
         return redirect(url_for('dashboard'))
