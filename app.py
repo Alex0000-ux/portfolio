@@ -14,6 +14,9 @@ def patched_getaddrinfo(host, port, family=0, *args, **kwargs):
 socket.getaddrinfo = patched_getaddrinfo
 
 import os
+import json
+import urllib.request
+import urllib.error
 import threading
 import werkzeug.utils
 from datetime import datetime
@@ -23,7 +26,6 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from authlib.integrations.flask_client import OAuth
 from flask_socketio import SocketIO, join_room, emit
-from flask_mail import Mail, Message
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 # Carica le variabili dal file .env
@@ -52,22 +54,13 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     'pool_recycle': 280,
 }
 
-# Configurazione Mail
-app.config['MAIL_SERVER'] = 'smtp.gmail.com'
-app.config['MAIL_PORT'] = 465
-app.config['MAIL_USE_TLS'] = False
-app.config['MAIL_USE_SSL'] = True
-app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
-app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
-app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_USERNAME')
-
 # Configurazione Upload File Chat
 app.config['UPLOAD_FOLDER'] = os.path.join(app.root_path, 'static/uploads')
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 db = SQLAlchemy(app)
 
-# SocketIO ottimizzato con Eventlet
+# SocketIO ottimizzato con Gevent
 socketio = SocketIO(
     app,
     cors_allowed_origins="*",
@@ -75,8 +68,6 @@ socketio = SocketIO(
     ping_timeout=60,
     ping_interval=25
 )
-
-mail = Mail(app)
 
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
@@ -169,29 +160,77 @@ def inject_notifications():
 
 
 # =========================================================
-# HELPER NOTIFICHE & EMAIL ASINCRONE
+# HELPER NOTIFICHE ASINCRONE (TELEGRAM E RESEND API)
 # =========================================================
-def send_async_email_api(mail_username, mail_password, to_email, subject, body_text):
-    """Invia l'email bypassando Flask-Mail e usando il modulo nativo."""
+def send_async_telegram_api(message):
+    """Invia una notifica istantanea all'Admin via Bot Telegram."""
+    bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+    chat_id = os.getenv("TELEGRAM_ADMIN_CHAT_ID")
+
+    if not bot_token or not chat_id:
+        print("[TELEGRAM ERROR] Variabili TELEGRAM_BOT_TOKEN o TELEGRAM_ADMIN_CHAT_ID mancanti.")
+        return
+
     try:
-        import smtplib
-        from email.mime.text import MIMEText
-        from email.header import Header
-        
-        # FIX: Aggiunto 'utf-8' per impedire il blocco causato da lettere accentate (es. 'più')
-        msg = MIMEText(body_text, 'plain', 'utf-8')
-        msg['Subject'] = Header(subject, 'utf-8')
-        msg['From'] = mail_username
-        msg['To'] = to_email
-        
-        # Connessione pulita SSL sulla porta 465
-        server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
-        server.login(mail_username, mail_password)
-        server.sendmail(mail_username, [to_email], msg.as_string())
-        server.quit()
-        print(f"[EMAIL SUCCESS] Inviata con successo tramite socket nativo a {to_email}")
+        url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+        payload = json.dumps({
+            "chat_id": chat_id,
+            "text": message,
+            "parse_mode": "HTML"
+        }).encode('utf-8')
+
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+
+        with urllib.request.urlopen(req, timeout=10) as response:
+            if response.status == 200:
+                print("[TELEGRAM SUCCESS] Notifica inviata all'admin su Telegram")
+            else:
+                print(f"[TELEGRAM ERROR] Status code: {response.status}")
     except Exception as e:
-        print(f"[EMAIL ERROR] Fallimento definitivo invio: {str(e)}")
+        print(f"[TELEGRAM ERROR] Fallimento invio Telegram: {str(e)}")
+
+
+def send_async_resend_email_api(to_email, subject, body_text):
+    """Invia un'email al cliente tramite le API HTTP di Resend."""
+    resend_api_key = os.getenv("RESEND_API_KEY")
+    sender_email = os.getenv("MAIL_USERNAME", "onboarding@resend.dev")
+
+    if not resend_api_key:
+        print("[RESEND ERROR] Variabile RESEND_API_KEY mancante.")
+        return
+
+    try:
+        url = "https://api.resend.com/emails"
+        payload = json.dumps({
+            "from": sender_email,
+            "to": [to_email],
+            "subject": subject,
+            "text": body_text
+        }).encode('utf-8')
+
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {resend_api_key}",
+                "Content-Type": "application/json"
+            },
+            method="POST"
+        )
+
+        with urllib.request.urlopen(req, timeout=10) as response:
+            if response.status in (200, 201):
+                print(f"[RESEND SUCCESS] Email inviata con successo tramite Resend API a {to_email}")
+            else:
+                print(f"[RESEND ERROR] Status code: {response.status}")
+    except Exception as e:
+        print(f"[RESEND ERROR] Fallimento definitivo invio email via Resend: {str(e)}")
+
 
 def create_notification_and_email(user_id, message, category, link):
     user = User.query.get(user_id)
@@ -201,18 +240,16 @@ def create_notification_and_email(user_id, message, category, link):
     notif = Notification(user_id=user.id, message=message, category=category, link=link)
     db.session.add(notif)
     
-    mail_username = app.config.get('MAIL_USERNAME')
-    mail_password = app.config.get('MAIL_PASSWORD')
-    
-    if user.email and mail_username and mail_password:
-        try:
+    if user.is_admin:
+        # Notifica per l'Admin -> Inviata via Telegram
+        telegram_msg = f"<b>[AM.dev - {category}]</b>\n{message}"
+        gevent.spawn(send_async_telegram_api, telegram_msg)
+    else:
+        # Notifica per il Cliente -> Inviata via Email (Resend API)
+        if user.email:
             subject = f"Aggiornamento Progetto: {category}"
             body_text = f"Ciao {user.name},\n\nHai ricevuto un nuovo aggiornamento:\n\n{message}\n\nAccedi alla piattaforma per visualizzare i dettagli."
-            
-            # Usiamo gevent.spawn per non bloccare la richiesta dell'utente
-            gevent.spawn(send_async_email_api, mail_username, mail_password, user.email, subject, body_text)
-        except Exception as e:
-            print(f"[EMAIL PREPARATION ERROR] {e}")
+            gevent.spawn(send_async_resend_email_api, user.email, subject, body_text)
 
 
 # =========================================================
@@ -235,7 +272,6 @@ def auth():
 
     user = User.query.filter_by(email=user_info['email']).first()
     
-    # FIX: Utilizzo di .strip() per evitare bug legati a spazi accidentali nel .env
     admin_env = os.getenv("ADMIN_EMAIL", "").strip().lower()
     is_admin_check = True if admin_env and user_info['email'].lower() == admin_env else False
 
@@ -249,7 +285,6 @@ def auth():
         db.session.add(user)
         db.session.commit()
     else:
-        # FIX: Aggiorna l'account ad Admin se avevi loggato prima di correggere il .env
         if is_admin_check and not user.is_admin:
             user.is_admin = True
             db.session.commit()
@@ -280,16 +315,16 @@ def dashboard():
         )
         db.session.add(new_req)
         
-        # 1. NOTIFICA ED EMAIL ALL'ADMIN
+        # 1. NOTIFICA ALL'ADMIN (via Telegram)
         admin_user = User.query.filter_by(is_admin=True).first()
         if admin_user:
             create_notification_and_email(admin_user.id, f"Nuova commissione ricevuta da {current_user.name}: {new_req.site_name}", "Nuova Commissione", "/admin")
-        elif os.getenv("ADMIN_EMAIL"):
-            # Fallback di emergenza: manda l'email anche se l'admin non è registrato nel DB
-            admin_email_raw = os.getenv("ADMIN_EMAIL").strip()
-            gevent.spawn(send_async_email_api, app.config.get('MAIL_USERNAME'), app.config.get('MAIL_PASSWORD'), admin_email_raw, "Nuova Commissione", f"Nuova commissione ricevuta da {current_user.name}: {new_req.site_name}")
+        else:
+            # Fallback immediato su Telegram se l'admin non si è ancora registrato nel DB
+            telegram_msg = f"<b>[AM.dev - Nuova Commissione]</b>\nNuova commissione ricevuta da {current_user.name}: {new_req.site_name}"
+            gevent.spawn(send_async_telegram_api, telegram_msg)
             
-        # 2. NOTIFICA ED EMAIL AL CLIENTE
+        # 2. NOTIFICA AL CLIENTE (via Resend API)
         create_notification_and_email(current_user.id, f"Grazie per la tua richiesta! Abbiamo preso in carico il progetto per '{new_req.site_name}'. Ti risponderemo al più presto.", "Conferma Ricezione", "/dashboard")
 
         db.session.commit()
